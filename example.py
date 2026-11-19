@@ -13,7 +13,6 @@ from frostauth import FrostAuth, FrostAuthError
 OWNER = "0809wkVP"
 PRODUCT = "33abf48a-8e33-4df5-a4bd-d79195704d52"
 VERSION = "1.0.2"
-# BASE_URL = "https://api.frostauth.cc"
 
 
 def fail(err: Exception):
@@ -42,12 +41,6 @@ def loc(iso: str) -> str:
     )
 
 
-# Snapshot-backed profile readout. Everything here comes from the local
-# snapshot (populated by activate/register/login on every plan), so it works
-# with or without a session token — unlike appData/online, which are
-# session-backed and throw on plans without tokenSystem.
-# Only prints fields the backend actually returns (licenseView + accountView
-# + device + product) — no invented email/key/plan lookups.
 def show_user(snap: dict):
     lic = snap.get("license") or {}
     account = snap.get("account") or {}
@@ -111,9 +104,6 @@ def show_user(snap: dict):
 
 
 def dashboard(app: FrostAuth):
-    # Snapshot-backed only. Session-backed reads (app_data/online) are
-    # plan-gated (tokenSystem: Developer/Pro) and print "unknown" on other
-    # plans, so they are not shown here at all.
     snap = app.snapshot()
 
     show_user(snap)
