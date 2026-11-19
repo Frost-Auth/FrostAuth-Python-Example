@@ -1,16 +1,3 @@
-"""FrostAuth SDK — Python port.
-
-Mirrors sdk/frostauth.js wire behavior:
-  - every response is Ed25519-verified over
-    "timestamp\\nnonce\\nmethod\\npath\\nstatus\\nbody" (±60s skew, pinned key IDs),
-  - init() pins the server's public key against the key baked into this build,
-  - offline assertions verified locally when the network is gone,
-  - DNS-hijack tripwire refuses loopback/private answers before any licence
-    material is sent.
-
-Requires: Python 3.11+, `cryptography` (see requirements.txt). No other deps.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -72,8 +59,7 @@ class FrostAuthError(Exception):
 
     @property
     def terminal(self) -> bool:
-        return (not self.retryable and not self.needs_activation
-                and 400 <= self.status < 500)
+        return (not self.retryable and not self.needs_activation and 400 <= self.status < 500)
 
 
 def _spki_to_raw(b64: str) -> bytes:
@@ -182,7 +168,6 @@ def verify_assertion(assertion: str, pinned: dict[str, str], *,
     return True, "", claims
 
 
-# ── machine identity ─────────────────────────────────────────────────────────
 
 _machine_cache: str | None = None
 
@@ -265,11 +250,10 @@ def hardware_profile() -> tuple[list[dict], bool]:
         except OSError:
             pass
 
-    # One MAC via uuid (stdlib limitation; good enough for an advisory facet).
     mac_int = uuid.getnode()
     macs: list[str] = []
     all_virtual = True
-    if (mac_int >> 40) & 0x03 != 0x03:  # not a locally-administered/random node
+    if (mac_int >> 40) & 0x03 != 0x03:
         mac = ":".join(f"{(mac_int >> i) & 0xFF:02x}" for i in range(40, -1, -8))
         macs.append(mac)
         if not mac[:8] in VM_MAC_PREFIXES:
@@ -291,7 +275,6 @@ def hardware_profile() -> tuple[list[dict], bool]:
     return components, virtual
 
 
-# ── DNS-hijack tripwire ──────────────────────────────────────────────────────
 
 def _assert_real_host(base_url: str) -> None:
     from urllib.parse import urlparse
@@ -331,7 +314,6 @@ def _is_ip_literal(host: str) -> bool:
         return False
 
 
-# ── client ───────────────────────────────────────────────────────────────────
 
 class FrostAuth:
     def __init__(self, *, owner: str, product: str, version: str,
@@ -390,7 +372,6 @@ class FrostAuth:
         self._hb_stop = threading.Event()
         self._hb_thread: threading.Thread | None = None
 
-        # Event hooks — assign callables, e.g. app.on_invalid = lambda e: ...
         self.on_activated = None
         self.on_registered = None
         self.on_logged_in = None
@@ -400,7 +381,6 @@ class FrostAuth:
         self.on_invalid = None
         self.on_needs_activation = None
 
-    # ── public API ───────────────────────────────────────────────────────
 
     @property
     def valid(self) -> bool:
@@ -412,14 +392,12 @@ class FrostAuth:
         path = f"/api/v1/settings/catalog/{_urlquote(self.owner, safe='')}/{_urlquote(self.product, safe='')}"
         body = self._request("GET", path, None, envelope=False)
         if not body or not body.get("success"):
-            raise FrostAuthError(body.get("message") or "Application not found",
-                                 code=body.get("error") or "APP_NOT_FOUND", status=404)
+            raise FrostAuthError(body.get("message") or "Application not found", code=body.get("error") or "APP_NOT_FOUND", status=404)
         key_id = str(body.get("key_id") or "")
         served = str(body.get("public_key") or "")
         pinned = PUBLIC_KEYS.get(key_id)
         if not key_id or not pinned or served != pinned:
-            raise FrostAuthError("Server identity check failed — refusing to continue",
-                                 code=Codes.SIGNATURE, status=401)
+            raise FrostAuthError("Server identity check failed — refusing to continue", code=Codes.SIGNATURE, status=401)
         with self._lock:
             self._keys = {key_id: _spki_to_raw(pinned)}
             self.app = {"name": body.get("app_name"), "ownerId": body.get("owner_id"),
@@ -479,9 +457,7 @@ class FrostAuth:
         key = str(key or "").strip()
         if not key:
             raise FrostAuthError("licence key is required", code=Codes.CONFIG)
-        payload = {"key": key, "username": username.strip(), "password": password,
-                   "hwid": self._machine(), "os": _platform.system().lower(),
-                   "appVersion": self.version, **self._hardware_extra()}
+        payload = {"key": key, "username": username.strip(), "password": password, "hwid": self._machine(), "os": _platform.system().lower(), "appVersion": self.version, **self._hardware_extra()}
         extra = extra or {}
         if extra.get("hash"):
             payload["hash"] = extra["hash"]
@@ -536,8 +512,7 @@ class FrostAuth:
         with self._lock:
             token = (self._session or {}).get("token")
         if not token:
-            raise FrostAuthError("This call needs a session — activate or sign in first",
-                                 code=Codes.NOT_ACTIVATED)
+            raise FrostAuthError("This call needs a session — activate or sign in first", code=Codes.NOT_ACTIVATED)
         return self._request(method, path, body, token=token)
 
     def logout(self) -> dict:
@@ -569,12 +544,10 @@ class FrostAuth:
         return data.get("value")
 
     def set_var(self, key: str, value) -> dict:
-        return self._authed("PUT", f"/api/v1/sdk/vars/user/{_urlquote(key, safe='')}",
-                            {"value": str(value if value is not None else "")})
+        return self._authed("PUT", f"/api/v1/sdk/vars/user/{_urlquote(key, safe='')}", {"value": str(value if value is not None else "")})
 
     def change_username(self, username: str, password: str) -> dict:
-        data = self._authed("PATCH", "/api/v1/sdk/username",
-                            {"username": username.strip(), "password": password})
+        data = self._authed("PATCH", "/api/v1/sdk/username", {"username": username.strip(), "password": password})
         with self._lock:
             if self.account is not None:
                 self.account["username"] = data.get("username")
@@ -618,8 +591,6 @@ class FrostAuth:
         return self._authed("GET", "/api/v1/sdk/app")
 
     def file(self, file_id: str) -> bytes:
-        # File downloads are disabled server-side (route unmounted) —
-        # mirrors the JS reference SDK, which throws.
         raise FrostAuthError("File downloads are disabled on this server")
 
     def validate(self) -> dict:
@@ -751,7 +722,6 @@ class FrostAuth:
                 "valid": self.activated and not self._closed,
             }
 
-    # ── internals ────────────────────────────────────────────────────────
 
     def _pinned_b64(self) -> dict[str, str]:
         out = {}
@@ -800,8 +770,7 @@ class FrostAuth:
         headers = resp.headers
 
         def reject(why):
-            raise FrostAuthError(f"Refusing an unverified answer from the licence server: {why}",
-                                 code=Codes.SIGNATURE, status=resp.status)
+            raise FrostAuthError(f"Refusing an unverified answer from the licence server: {why}", code=Codes.SIGNATURE, status=resp.status)
 
         sig = headers.get("x-frost-signature")
         ts = headers.get("x-frost-timestamp")
@@ -819,8 +788,7 @@ class FrostAuth:
         raws = [v for k, v in self._keys.items() if key_id == "" or k == key_id]
         if not raws:
             reject(f'it was signed with key "{key_id}", which this build does not trust')
-        material = "\n".join([ts, nonce, method.upper(), path, str(resp.status),
-                              raw.decode("utf-8", "surrogateescape")]).encode("utf-8")
+        material = "\n".join([ts, nonce, method.upper(), path, str(resp.status), raw.decode("utf-8", "surrogateescape")]).encode("utf-8")
         try:
             signature = _b64u_decode(sig)
         except Exception:
@@ -851,7 +819,7 @@ class FrostAuth:
         try:
             resp = _urlrequest.urlopen(req, timeout=self.timeout)
         except _urlerror.HTTPError as e:
-            resp = e  # HTTPError behaves like a response with .status/.headers/.read
+            resp = e
         except _urlerror.URLError as e:
             reason = getattr(e, "reason", None)
             timed_out = isinstance(reason, (socket.timeout, TimeoutError)) or "timed out" in str(reason).lower()
@@ -860,30 +828,25 @@ class FrostAuth:
                 else "Could not reach the licence server",
                 code=Codes.TIMEOUT if timed_out else Codes.NETWORK, retryable=True) from e
         except TimeoutError as e:
-            raise FrostAuthError(f"Request timed out after {self.timeout}s",
-                                 code=Codes.TIMEOUT, retryable=True) from e
+            raise FrostAuthError(f"Request timed out after {self.timeout}s", code=Codes.TIMEOUT, retryable=True) from e
 
         except (ConnectionError, HTTPException) as e:
-            raise FrostAuthError("Could not reach the licence server",
-                                 code=Codes.NETWORK, retryable=True) from e
+            raise FrostAuthError("Could not reach the licence server", code=Codes.NETWORK, retryable=True) from e
 
         with resp:
             try:
                 raw = resp.read(8 << 20)
             except TimeoutError as e:
-                raise FrostAuthError(f"Request timed out after {self.timeout}s",
-                                     code=Codes.TIMEOUT, retryable=True) from e
+                raise FrostAuthError(f"Request timed out after {self.timeout}s", code=Codes.TIMEOUT, retryable=True) from e
             except (ConnectionError, HTTPException) as e:
-                raise FrostAuthError("Could not read the licence server response",
-                                     code=Codes.NETWORK, retryable=True) from e
+                raise FrostAuthError("Could not read the licence server response", code=Codes.NETWORK, retryable=True) from e
             status = resp.status if hasattr(resp, "status") else resp.code
             sig = resp.headers.get("x-frost-signature")
             if status != 429 or sig:
                 self._verify_response(resp, raw, nonce, method, path)
             return status, raw, resp.headers
 
-    def _request(self, method: str, path: str, body=None, *, envelope: bool = True,
-                 token: str | None = None) -> dict:
+    def _request(self, method: str, path: str, body=None, *, envelope: bool = True, token: str | None = None) -> dict:
         last_err: FrostAuthError | None = None
         for attempt in range(self.retries + 1):
             if attempt > 0:
@@ -904,9 +867,7 @@ class FrostAuth:
                 except ValueError:
                     wait = 2
                 wait = wait if 0 < wait <= MAX_RETRY_AFTER_SECONDS else 2
-                last_err = FrostAuthError("Rate limited by the licence server",
-                                          code=Codes.RATE_LIMITED, status=429,
-                                          retryable=True, retry_after=wait)
+                last_err = FrostAuthError("Rate limited by the licence server", code=Codes.RATE_LIMITED, status=429, retryable=True, retry_after=wait)
                 if attempt < self.retries:
                     time.sleep(wait)
                     continue
@@ -936,8 +897,7 @@ class FrostAuth:
                 code = resp_obj.get("errorCode") or (payload or {}).get("error") or Codes.SERVER_ERROR
                 if isinstance(code, bool):
                     code = Codes.SERVER_ERROR
-                raise FrostAuthError(resp_obj.get("message") or f"Request failed ({status})",
-                                     code=code, status=status)
+                raise FrostAuthError(resp_obj.get("message") or f"Request failed ({status})", code=code, status=status)
 
             return resp_obj.get("data") or {}
 
