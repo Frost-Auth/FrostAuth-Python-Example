@@ -1,35 +1,19 @@
 # FrostAuth-Python-Example 🌟
 
-FrostAuth Python example SDK for https://www.frostauth.cc license key API auth.
+Python example for the [FrostAuth license key API](https://www.frostauth.cc/).
 
-This example ships the SDK source directly — `frostauth/frostauth.py`.
-`from frostauth import FrostAuth`, mirror `example.py`, and you're integrated.
-One dependency: `cryptography`.
+Import `FrostAuth` from the bundled `frostauth` package and start with `example.py`. The SDK uses `cryptography` to verify Ed25519 signatures.
 
 ## Bugs
 
-If you're running this example with no significant changes and something's broken,
-open an issue with your FrostAuth version, Python version, and the exact error text.
-
-We do **NOT** provide support for wiring FrostAuth into your project. If the
-install steps below don't make sense yet, learn some Python first
-(docs.python.org/YouTube), then come back.
+Open an issue if you can reproduce the failure with the example. Include your FrostAuth SDK version, `python --version`, and the exact error. Remove license keys and tokens before posting.
 
 ## Security practices
 
-* Ship releases through a protector/packer (PyInstaller + VMProtect on the
-bundle, or Nuitka compiled) and put license checks behind their markers — a
-plain `.py` next to your exe defeats the point.
-* Run frequent integrity checks so patched memory kills the session instead of
-granting access.
-* Never write a downloaded file to disk if you don't want the user to have it.
-Execute in memory and wipe the buffer the moment you're done.
-* Treat every client answer as advisory. The server re-checks the license on
-each call — don't add a local `is_valid` boolean that bypasses it.
-
-FrostAuth signs every response and pins the server key, but no API survives a
-client that trusts itself. Obfuscation + integrity checks stop tampering; the
-API stops key sharing.
+- If you use VMProtect or Themida, put the protector's markers around the license checks.
+- Run integrity checks during the session. End the session if a check detects tampering.
+- Keep files you need to protect on the server. Clear temporary buffers when the app is done with them.
+- Use the API to recheck licenses and enforce access to server resources there. A local `isValid` flag alone can't enforce access.
 
 ## Copyright License
 
@@ -39,49 +23,42 @@ This SDK is distributed under Elastic License 2.0. See [LICENSE](LICENSE).
 
 ## What is FrostAuth?
 
-FrostAuth is a cloud licensing platform that protects your software from piracy
-and unauthorized access. Hardware-locked licenses, secure auth, real-time
-analytics, and a dashboard your customers never see. Client SDKs for Python
-(this repo), C++, C#, Go, Rust, Java, and JavaScript. Come ask questions on
-Discord: https://www.frostauth.cc/discord
+FrostAuth is a cloud licensing API with device-bound keys, app accounts, and a dashboard for managing licenses and tracking activations. SDKs are available for C++, C#, Go, Java, JavaScript, Python, and Rust. For product questions, join the [FrostAuth Discord](https://www.frostauth.cc/discord).
 
 ## Requirements
 
-* Python 3.10+
+Python 3.11 or newer and the dependencies in `requirements.txt`.
 
-## Install & run
+## Build
+
+Run these commands from the SDK directory after setting your product details in the example.
 
 ```bash
-cd FrostAuth-Python-Example
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt                      # just: cryptography
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 python example.py
 ```
 
-Or install the package itself (`pyproject.toml` included):
-
-```bash
-pip install .
-```
+On Windows PowerShell, activate the virtual environment with `./.venv/Scripts/Activate.ps1`.
 
 ## `FrostAuth` instance definition
 
-Open your FrostAuth dashboard, pick your product, and copy the three values
-into [`example.py`](example.py):
+Copy the owner ID and product ID from the FrostAuth dashboard into `example.py`. Set the version you plan to ship.
 
 ```python
-OWNER = "YOUR-OWNER-ID"      # dashboard → product → owner id
-PRODUCT = "YOUR-PRODUCT-ID"  # dashboard → product → product id
-VERSION = "1.0.0"            # must match the version you ship
+from frostauth import FrostAuth
+
+OWNER = "0809y7MP"                                  # dashboard → product → owner id
+PRODUCT = "33abf48a-8e33-4df5-a4bd-d79195704d52"    # dashboard → product → product id
+VERSION = "1.0.0"                                   # must match the version you ship
 
 app = FrostAuth(owner=OWNER, product=PRODUCT, version=VERSION)
 ```
 
 ## Initialize application
 
-You must call this before anything else. It fetches the public catalog and
-pins the server's signing key (TOFU) — every later response is Ed25519-checked
-against it, so a MITM serving a fake key aborts here instead of later.
+Call `init()` first. It fetches the public product catalog and checks the returned key ID and Ed25519 public key against the SDK's pin. The SDK uses the pinned key to verify signed responses.
 
 ```python
 app.init()
@@ -89,39 +66,36 @@ app.init()
 
 ## Display application information
 
+Fetch application information after activation or sign-in returns a session token.
+
 ```python
 app_data = app.app_data()
-prod = (app_data or {}).get("product", {})
-print("App Version:", prod.get("version"))
-print("Customer panel:", "enabled" if prod else "unknown")
+print("App version:", (app_data.get("product") or {}).get("version"))
 ```
 
 ## Check session validation
 
-Re-checks the license/session with the server. Falls back from a stale session
-token to the stored license key once.
+After activation or sign-in, call `validate()` to check the license again. If the API rejects a stale session token, the SDK retries once with the stored license key when it has one.
 
 ```python
-app.validate()  # raises FrostAuthError when the session is dead — exit, don't continue
+app.validate()
 ```
 
 ## Check blacklist status
 
-Whether this device/IP/key is blacklisted. Optional: the server already
-refuses blacklisted callers on login/register, so this is just an early exit
-for clients that want to close before showing UI.
+Check the blacklist with an active session. The API also checks it during activation and sign-in.
 
 ```python
-app.check_blacklist()  # raises on block — exit
+app.check_blacklist()
 ```
 
 ## Login with username/password
 
+Supply the account credentials. If the account uses two-factor authentication, include its code.
+
 ```python
 snap = app.login(username, password)
 ```
-
-Pass 2FA/build extras as `app.login(user, pw, {"twofa": "123456"})`.
 
 ## Register with username/password/key
 
@@ -131,9 +105,7 @@ snap = app.register(key, username, password)
 
 ## Upgrade user with key
 
-Attaches a license key to an existing app user (adds time). Unlike login and
-register this opens **no session** — sign the user in after a successful
-upgrade.
+Apply the key to the existing account. Sign in after the upgrade to open a session.
 
 ```python
 app.upgrade(username, password, key)
@@ -143,19 +115,17 @@ snap = app.login(username, password)
 
 ## Login with just license key
 
-For key-only products. Binds the key to this machine and opens a session —
-no username needed.
+For a key-only product, activate with the license key. The API applies the product's device rules and issues a session token where supported.
 
 ```python
 snap = app.activate(key)
 ```
 
-Extra build evidence: `app.activate(key, {"hash": digest, "label": "Alex's desktop"})`
-when the product has hash checks on.
+For products that check builds, pass `app.activate(key, {"hash": digest, "label": "Office desktop"})`. The label is optional.
 
 ## User Data
 
-Everything about the current session lives in the snapshot:
+Read the current user, account, device, and subscriptions from the snapshot.
 
 ```python
 snap = app.snapshot()
@@ -168,8 +138,7 @@ for sub in snap.get("subscriptions", []):
 
 ## Check subscription of user
 
-Gate features by tier. Compare against the tier name you configured on the
-dashboard — exact match, case-insensitive on the server side.
+Use the tier name you set in the dashboard. The example checks for `pro`.
 
 ```python
 subs = snap.get("subscriptions", [])
@@ -180,9 +149,7 @@ if not any((s.get("tier") or "").lower() == "pro" for s in subs):
 
 ## Application variables
 
-Server-side strings, global for all users (feature flags, MOTD, config).
-Read-only from the client; edit them on the dashboard. Tier- and
-version-gated server-side.
+Edit shared variables in the dashboard. The API applies each variable's tier and version rules on read.
 
 ```python
 print("MOTD:", app.variable("maintenance_message"))
@@ -190,8 +157,7 @@ print("MOTD:", app.variable("maintenance_message"))
 
 ## User Variables
 
-Per-user key/value pairs. Read and write them unless the operator marked one
-read-only (balances, ranks — server-writable only).
+Read or update values for the signed-in user. The API rejects writes to variables the operator marked read-only.
 
 ```python
 print(app.list_vars())            # every variable on this user
@@ -201,9 +167,7 @@ app.set_var("theme", "dark")      # write it back
 
 ## Application Logs
 
-Ship an event to the operator log. Good for anti-debug alerts and crash
-breadcrumbs. If the operator set a Discord webhook, it lands there instead of
-the dashboard (dashboard logs rotate after 30 days).
+Send an event to the operator's log. The product's logging settings determine where it appears.
 
 ```python
 app.log("client started, integrity check passed")
@@ -211,59 +175,44 @@ app.log("client started, integrity check passed")
 
 ## Ban the user
 
-Blacklists the HWID + IP. Call it when your integrity checks catch tampering.
-Only works after login. Ends the local session either way.
+Use an active session to ban the current device and IP address. The call also ends the local session.
 
 ```python
 app.ban("debugger detected")  # reason shows on next login + dashboard
 ```
 
-## Server-sided webhooks
+## Server-side webhooks
 
-Fire an operator-configured webhook by id. The destination URL lives on the
-server — the client only supplies params/body, so secrets never ship in your
-binary. Tier-gated like files/variables.
+Call a webhook by its configured ID. The API stores the destination and the client supplies the parameters and body.
 
 ```python
 res = app.webhook("discord", "", '{"content":"Hello from FrostAuth"}')
 print("upstream:", res.get("status"), "ok:", res.get("ok"))
 ```
 
-## Download file
-
-> Currently disabled server-side (route unmounted). `file()` raises
-> `File downloads are disabled on this server` until file storage ships. The
-> snippet below is the integration pattern for when it lands.
-
-```python
-blob = app.file("loader")
-open("loader.bin", "wb").write(blob)
-```
-
-## Changing username
-
-Lets a signed-in user rename themselves (password re-checked server-side).
-
-```python
-res = app.change_username(new_name, password)
-print("Renamed to", res.get("username"))
-```
-
 ## Heartbeat & offline
 
-`validate()` on a timer keeps the session fresh. The SDK caches a signed
-offline assertion — when the network drops, `check_offline()` verifies it
-locally so the app keeps working inside the grace window.
+After activation or sign-in, start the heartbeat. `check_offline()` verifies the cached signed assertion, including its expiry. If the assertion has expired or fails verification during an outage, the next failed heartbeat clears the active state. An invalid API response signature also stops the heartbeat and clears the active state.
+
+Set `offline_grace_seconds` to change the 15-minute fallback for sessions that received no assertion. Set it to `0` to disable the fallback. If the server closes the connection mid-request, the SDK reports a retryable network error and applies the heartbeat policy.
 
 ```python
 app.on_offline = lambda err, secs, verified: print("offline:", secs, verified)
 app.start_heartbeat()   # server cadence until stop/close
-# ...
+ok, reason = app.check_offline()
+if not ok:
+    print("offline:", reason)
 app.stop_heartbeat()
 app.close()
 ```
 
+## Compatibility checks
+
+On Linux, run `bash sdk/compatibility/run.sh python` from the Cerberus root. The suite tests activation, validation, signed errors, and offline heartbeat behavior against a local API fixture.
+
+This SDK initialized successfully against the live FrostAuth API on November 18, 2026. A live activation and heartbeat require a disposable license.
+
 ## SDK layout
 
-* `frostauth/frostauth.py` — the whole SDK (`from frostauth import FrostAuth`).
-* `example.py` — the interactive demo this README walks through.
+- `frostauth/frostauth.py` contains the SDK.
+- `example.py` runs the interactive example.
